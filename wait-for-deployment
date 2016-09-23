@@ -11,9 +11,14 @@
 #
 set -o errexit
 set -o pipefail
-set -o nounset
 
-deployment=
+DEFAULT_TIMEOUT=60
+
+monitor_timeout() {
+  sleep ${timeout}
+  echo "Timeout ${timeout} exceeded" >&2
+  kill $1
+}
 
 get_generation() {
   get_deployment_jsonpath '{.metadata.generation}'
@@ -45,10 +50,22 @@ count_ready_pods() {
   get_statuses_for_deployment | tr ' ' '\n' | grep Ready | wc -l
 }
 
-if [[ $# != 1 ]]; then
-  echo "Usage: $(basename $0) <deployment>" >&2
+
+if [[ $# -lt 1 ]]; then
+  echo "usage: $(basename $0) <deployment> [timeout]" >&2
   exit 1
 fi
+
+if [[ $2 -gt 0 ]]; then
+  export timeout=$2
+else 
+  export timeout=$DEFAULT_TIMEOUT
+fi
+
+echo "Waiting for deployment with timeout: ${timeout} seconds"
+
+monitor_timeout $$ &
+readonly timeout_monitor_pid=$!
 
 readonly deployment="$1"
 
@@ -81,4 +98,5 @@ while [[ ${ready_pods} -ne ${replicas} ]]; do
   ready_pods=$(count_ready_pods)
 done
 
+kill ${timeout_monitor_pid} #Stop timeout monitor
 echo "Deployment of service ${deployment} successful. All ${ready_pods} ready"
